@@ -2,7 +2,7 @@
 
 let
   inherit (pkgs) dockerTools stdenv buildEnv writeText;
-  inherit (pkgs) bashInteractive coreutils cacert nix openssh shadow;
+  inherit (pkgs) bashInteractive coreutils cacert nix openssh shadow iana-etc;
 
   inherit (native.lib) concatStringsSep genList;
 
@@ -36,7 +36,7 @@ let
     phases = [ "installPhase" "fixupPhase" ];
 
     exportReferencesGraph =
-      map (drv: [("closure-" + baseNameOf drv) drv]) [ path cacert unstable ];
+      map (drv: [("closure-" + baseNameOf drv) drv]) [ path cacert iana-etc unstable ];
 
     installPhase = ''
       mkdir -p $out/run/current-system $out/var
@@ -46,11 +46,16 @@ let
       mkdir -p $out/bin $out/usr/bin $out/sbin
       ln -s ${stdenv.shell} $out/bin/sh
       ln -s ${coreutils}/bin/env $out/usr/bin/env
+      ln -s ${bashInteractive} $out/bin/bash
+      ln -s ${bashInteractive} $out/usr/bin/bash
 
       mkdir -p $out/etc
       echo '${passwd}' > $out/etc/passwd
       echo '${group}' > $out/etc/group
       echo '${nsswitch}' > $out/etc/nsswitch.conf
+      ln -s ${iana-etc}/etc/protocols $out/etc/
+      ln -s ${iana-etc}/etc/services $out/etc/
+      ln -s ${cacert}/etc/ssl $out/etc/
 
       printRegistration=1 ${pkgs.perl}/bin/perl ${pkgs.pathsFromGraph} closure-* > $out/.reginfo
     '';
@@ -69,6 +74,7 @@ let
         "NIX_PATH=nixpkgs=${unstable}"
         "GIT_SSL_CAINFO=${cacert}/etc/ssl/certs/ca-bundle.crt"
         "SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
+        "USER=root"
       ];
   };
 
@@ -81,7 +87,20 @@ let
      && ln -s ${path} /nix/var/nix/gcroots/booted-system \
      && ln -s /nix/var/nix/profiles/per-user/root/profile /root/.nix-profile \
      && ln -s ${unstable} /root/.nix-defexpr/nixos \
-     && ln -s ${unstable} /root/.nix-defexpr/nixpkgs
+     && ln -s ${unstable} /root/.nix-defexpr/nixpkgs \
+     && nix-env -f '<nixpkgs>' -iA \
+        curl \
+        findutils \
+        gitMinimal \
+        glibc \
+        gnugrep \
+        gnused \
+        gnutar \
+        gzip \
+        which \
+        xz \
+     && nix-collect-garbage -d
+
   '';
 
   latestDocker = writeText "Dockerfile" ''
@@ -90,8 +109,7 @@ let
     RUN nix-env -f '<nixpkgs>' -iA \
         curl \
         findutils \
-        git \
-        glibc \
+        gitMinimal \
         gnugrep \
         gnused \
         gnutar \
@@ -141,7 +159,7 @@ let
     docker load < $imageOut
     echo "building ${unstable.version}..." >&2
     cp -f ${baseDocker} Dockerfile
-    docker build -t lnl7/nix:${unstable.version} .
+    docker build -t mickours/nix:${unstable.version} .
     docker rmi nix-base:${unstable.version}
   '';
 
